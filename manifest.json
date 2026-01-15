@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-gsync",
+	"name": "Google Drive Sync",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Sync your Obsidian vault to/from Google Drive. Keep your notes backed up and synchronized across devices.",
+	"author": "Ricardo Rodrigues",
+	"authorUrl": "https://github.com/ricardorodrigues-ca",
+	"isDesktopOnly": true
+}
