@@ -1,0 +1,239 @@
+/* Google Drive Sync Plugin Styles */
+
+/* Ribbon Icon */
+.gsync-ribbon-icon {
+	transition: transform 0.3s ease;
+}
+
+.gsync-ribbon-icon.gsync-syncing {
+	animation: gsync-spin 1s linear infinite;
+}
+
+.gsync-ribbon-icon.gsync-error {
+	color: var(--text-error);
+}
+
+@keyframes gsync-spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Status Bar */
+.gsync-status-bar {
+	cursor: pointer;
+	padding: 0 8px;
+	border-radius: 4px;
+	transition: background-color 0.2s ease;
+}
+
+.gsync-status-bar:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.gsync-status-idle {
+	color: var(--text-muted);
+}
+
+.gsync-status-syncing {
+	color: var(--text-accent);
+}
+
+.gsync-status-error {
+	color: var(--text-error);
+}
+
+.gsync-status-authenticated {
+	color: var(--text-success);
+}
+
+.gsync-status-unauthenticated {
+	color: var(--text-warning);
+}
+
+/* Settings Tab */
+.gsync-settings h3 {
+	margin-top: 24px;
+	margin-bottom: 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	padding-bottom: 8px;
+}
+
+.gsync-settings details {
+	margin: 12px 0;
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+}
+
+.gsync-settings details summary {
+	cursor: pointer;
+	font-weight: 600;
+	color: var(--text-accent);
+}
+
+.gsync-settings details ol {
+	margin-top: 12px;
+	padding-left: 24px;
+}
+
+.gsync-settings details li {
+	margin: 8px 0;
+	line-height: 1.5;
+}
+
+/* Sync Progress Modal */
+.gsync-progress-modal {
+	padding: 20px;
+}
+
+.gsync-progress-modal h2 {
+	margin-bottom: 16px;
+}
+
+.gsync-progress-bar-container {
+	width: 100%;
+	height: 8px;
+	background-color: var(--background-modifier-border);
+	border-radius: 4px;
+	overflow: hidden;
+	margin: 16px 0;
+}
+
+.gsync-progress-bar {
+	height: 100%;
+	background-color: var(--interactive-accent);
+	transition: width 0.3s ease;
+}
+
+.gsync-progress-text {
+	text-align: center;
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+.gsync-progress-status {
+	margin-top: 12px;
+	padding: 8px;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	font-family: var(--font-monospace);
+	font-size: 0.85em;
+	max-height: 100px;
+	overflow-y: auto;
+}
+
+/* Conflict Resolution Modal */
+.gsync-conflict-modal {
+	padding: 20px;
+	max-width: 500px;
+}
+
+.gsync-conflict-modal h2 {
+	margin-bottom: 16px;
+	color: var(--text-warning);
+}
+
+.gsync-conflict-info {
+	margin: 16px 0;
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+}
+
+.gsync-conflict-info .file-path {
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+	word-break: break-all;
+}
+
+.gsync-conflict-info .file-details {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 12px;
+}
+
+.gsync-conflict-info .file-details > div {
+	flex: 1;
+	padding: 8px;
+}
+
+.gsync-conflict-info .file-details .local-info {
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.gsync-conflict-info .file-details h4 {
+	margin: 0 0 8px 0;
+	font-size: 0.9em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+}
+
+.gsync-conflict-buttons {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 16px;
+}
+
+/* Auth Status Indicator */
+.gsync-auth-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.gsync-auth-status .status-indicator {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+
+.gsync-auth-status .status-indicator.connected {
+	background-color: var(--text-success);
+}
+
+.gsync-auth-status .status-indicator.disconnected {
+	background-color: var(--text-error);
+}
+
+/* Notification Styles */
+.gsync-notice {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.gsync-notice .notice-icon {
+	flex-shrink: 0;
+}
+
+/* Loading Spinner */
+.gsync-spinner {
+	display: inline-block;
+	width: 16px;
+	height: 16px;
+	border: 2px solid var(--text-muted);
+	border-top-color: var(--text-accent);
+	border-radius: 50%;
+	animation: gsync-spin 1s linear infinite;
+}
+
+/* Settings Text Area */
+.gsync-settings textarea {
+	min-height: 60px;
+	font-family: var(--font-monospace);
+	font-size: 0.9em;
+}
+
+/* Button Styles */
+.gsync-settings .setting-item-control button {
+	margin-left: 8px;
+}
+
+.gsync-settings .setting-item-control button.mod-warning {
+	background-color: var(--background-modifier-error);
+}
