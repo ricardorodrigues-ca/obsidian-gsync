@@ -3,6 +3,8 @@ import type GSyncPlugin from './main';
 
 export class GSyncSettingTab extends PluginSettingTab {
 	plugin: GSyncPlugin;
+	private authCodeInput: TextComponent | null = null;
+	private authFlowStarted: boolean = false;
 
 	constructor(app: App, plugin: GSyncPlugin) {
 		super(app, plugin);
@@ -29,8 +31,7 @@ export class GSyncSettingTab extends PluginSettingTab {
 		instructionsList.createEl('li', { text: 'Create a new project or select an existing one' });
 		instructionsList.createEl('li', { text: 'Enable the Google Drive API for your project' });
 		instructionsList.createEl('li', { text: 'Go to "Credentials" and create OAuth 2.0 credentials' });
-		instructionsList.createEl('li', { text: 'Set the application type to "Desktop app"' });
-		instructionsList.createEl('li', { text: 'Add http://localhost:42813/callback as an authorized redirect URI' });
+		instructionsList.createEl('li', { text: 'Set the application type to "Desktop app" or "TV and Limited Input"' });
 		instructionsList.createEl('li', { text: 'Copy the Client ID and Client Secret below' });
 
 		let clientIdInput: TextComponent;
@@ -54,45 +55,86 @@ export class GSyncSettingTab extends PluginSettingTab {
 					.inputEl.type = 'password';
 			});
 
-		new Setting(containerEl)
-			.setName('Save Credentials & Connect')
-			.setDesc('Save your credentials and authenticate with Google Drive')
-			.addButton(button => button
-				.setButtonText('Connect to Google Drive')
-				.setCta()
-				.onClick(async () => {
-					const clientId = clientIdInput.getValue().trim();
-					const clientSecret = clientSecretInput.getValue().trim();
-
-					if (!clientId || !clientSecret) {
-						new Notice('Please enter both Client ID and Client Secret');
-						return;
-					}
-
-					this.plugin.authService.setCredentials({ clientId, clientSecret });
-					const success = await this.plugin.authService.startAuthFlow();
-
-					if (success) {
-						this.display(); // Refresh the settings view
-					}
-				}));
-
 		// Connection Status
 		containerEl.createEl('h3', { text: 'Connection Status' });
 
 		const isAuthenticated = this.plugin.authService.isAuthenticated();
-		const statusSetting = new Setting(containerEl)
-			.setName('Status')
-			.setDesc(isAuthenticated ? 'Connected to Google Drive' : 'Not connected');
 
 		if (isAuthenticated) {
-			statusSetting.addButton(button => button
-				.setButtonText('Disconnect')
-				.setWarning()
-				.onClick(async () => {
-					await this.plugin.authService.revokeAccess();
-					this.display();
-				}));
+			new Setting(containerEl)
+				.setName('Status')
+				.setDesc('Connected to Google Drive')
+				.addButton(button => button
+					.setButtonText('Disconnect')
+					.setWarning()
+					.onClick(async () => {
+						await this.plugin.authService.revokeAccess();
+						this.authFlowStarted = false;
+						this.display();
+					}));
+		} else {
+			new Setting(containerEl)
+				.setName('Status')
+				.setDesc('Not connected');
+
+			// Step 1: Start auth flow
+			new Setting(containerEl)
+				.setName('Step 1: Sign in with Google')
+				.setDesc('Opens Google sign-in in your browser. After signing in, you\'ll receive an authorization code.')
+				.addButton(button => button
+					.setButtonText('Sign in with Google')
+					.setCta()
+					.onClick(async () => {
+						const clientId = clientIdInput.getValue().trim();
+						const clientSecret = clientSecretInput.getValue().trim();
+
+						if (!clientId || !clientSecret) {
+							new Notice('Please enter both Client ID and Client Secret first');
+							return;
+						}
+
+						this.plugin.authService.setCredentials({ clientId, clientSecret });
+						const authUrl = await this.plugin.authService.startAuthFlow();
+
+						if (authUrl) {
+							this.authFlowStarted = true;
+							this.display(); // Refresh to show the code input
+						}
+					}));
+
+			// Step 2: Enter authorization code (only show after auth flow started)
+			if (this.authFlowStarted) {
+				const codeContainer = containerEl.createDiv({ cls: 'gsync-auth-code-section' });
+				codeContainer.createEl('p', {
+					text: 'After signing in with Google, copy the authorization code and paste it below:',
+					cls: 'setting-item-description',
+				});
+
+				new Setting(codeContainer)
+					.setName('Step 2: Enter Authorization Code')
+					.setDesc('Paste the code from Google here')
+					.addText(text => {
+						this.authCodeInput = text;
+						text.setPlaceholder('Paste authorization code here')
+							.inputEl.style.width = '300px';
+					})
+					.addButton(button => button
+						.setButtonText('Submit Code')
+						.setCta()
+						.onClick(async () => {
+							const code = this.authCodeInput?.getValue().trim();
+							if (!code) {
+								new Notice('Please enter the authorization code');
+								return;
+							}
+
+							const success = await this.plugin.authService.completeAuthFlow(code);
+							if (success) {
+								this.authFlowStarted = false;
+								this.display(); // Refresh the settings view
+							}
+						}));
+			}
 		}
 
 		// Sync Configuration Section

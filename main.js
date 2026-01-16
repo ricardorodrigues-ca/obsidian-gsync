@@ -56,11 +56,12 @@ var SCOPES = [
 ];
 var GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 var GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+var REDIRECT_URI_OOB = "urn:ietf:wg:oauth:2.0:oob";
 var GoogleAuthService = class {
   constructor(plugin) {
     this.credentials = null;
-    this.localServer = null;
-    this.redirectUri = "http://localhost:42813/callback";
+    this.pendingAuthResolve = null;
+    this.codeVerifier = null;
     this.plugin = plugin;
   }
   setCredentials(credentials) {
@@ -84,98 +85,86 @@ var GoogleAuthService = class {
     }
     return this.plugin.settings.accessToken;
   }
+  /**
+   * Generate a random code verifier for PKCE
+   */
+  generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return this.base64UrlEncode(array);
+  }
+  /**
+   * Generate code challenge from verifier using SHA-256
+   */
+  async generateCodeChallenge(verifier) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    return this.base64UrlEncode(new Uint8Array(digest));
+  }
+  /**
+   * Base64 URL encode (RFC 4648)
+   */
+  base64UrlEncode(buffer) {
+    let binary = "";
+    for (let i = 0; i < buffer.byteLength; i++) {
+      binary += String.fromCharCode(buffer[i]);
+    }
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  /**
+   * Start the OAuth flow - opens browser for authentication
+   * Returns the auth URL for the user to visit
+   */
   async startAuthFlow() {
+    if (!this.credentials) {
+      new import_obsidian.Notice("Please configure your Google OAuth credentials first");
+      return null;
+    }
+    this.codeVerifier = this.generateCodeVerifier();
+    const codeChallenge = await this.generateCodeChallenge(this.codeVerifier);
+    const authUrl = this.buildAuthUrl(codeChallenge);
+    window.open(authUrl);
+    new import_obsidian.Notice("Opening Google sign-in page. Copy the authorization code after signing in.");
+    return authUrl;
+  }
+  /**
+   * Complete the auth flow by exchanging the authorization code for tokens
+   */
+  async completeAuthFlow(code) {
     if (!this.credentials) {
       new import_obsidian.Notice("Please configure your Google OAuth credentials first");
       return false;
     }
-    return new Promise((resolve) => {
-      const http = require("http");
-      const url = require("url");
-      if (this.localServer) {
-        this.localServer.close();
-      }
-      this.localServer = http.createServer(async (req, res) => {
-        const parsedUrl = url.parse(req.url, true);
-        if (parsedUrl.pathname === "/callback") {
-          const code = parsedUrl.query.code;
-          const error = parsedUrl.query.error;
-          if (error) {
-            res.writeHead(200, { "Content-Type": "text/html" });
-            res.end(`
-							<html>
-								<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-									<h2>Authentication Failed</h2>
-									<p>Error: ${error}</p>
-									<p>You can close this window.</p>
-								</body>
-							</html>
-						`);
-            this.localServer.close();
-            resolve(false);
-            return;
-          }
-          if (code) {
-            try {
-              await this.exchangeCodeForTokens(code);
-              res.writeHead(200, { "Content-Type": "text/html" });
-              res.end(`
-								<html>
-									<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-										<h2>Authentication Successful!</h2>
-										<p>You can close this window and return to Obsidian.</p>
-									</body>
-								</html>
-							`);
-              this.localServer.close();
-              resolve(true);
-            } catch (err) {
-              res.writeHead(200, { "Content-Type": "text/html" });
-              res.end(`
-								<html>
-									<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-										<h2>Authentication Failed</h2>
-										<p>Error exchanging code for tokens.</p>
-										<p>You can close this window.</p>
-									</body>
-								</html>
-							`);
-              this.localServer.close();
-              resolve(false);
-            }
-          }
-        }
-      });
-      this.localServer.listen(42813, () => {
-        const authUrl = this.buildAuthUrl();
-        require("electron").shell.openExternal(authUrl);
-        new import_obsidian.Notice("Opening Google sign-in page in your browser...");
-      });
-      this.localServer.on("error", (err) => {
-        console.error("Auth server error:", err);
-        new import_obsidian.Notice("Failed to start authentication server. Port 42813 may be in use.");
-        resolve(false);
-      });
-      setTimeout(() => {
-        if (this.localServer) {
-          this.localServer.close();
-          resolve(false);
-        }
-      }, 3e5);
-    });
+    if (!this.codeVerifier) {
+      new import_obsidian.Notice("Please start the authentication flow first");
+      return false;
+    }
+    try {
+      await this.exchangeCodeForTokens(code, this.codeVerifier);
+      this.codeVerifier = null;
+      return true;
+    } catch (error) {
+      console.error("Auth flow error:", error);
+      new import_obsidian.Notice("Authentication failed. Please try again.");
+      this.codeVerifier = null;
+      return false;
+    }
   }
-  buildAuthUrl() {
+  buildAuthUrl(codeChallenge) {
     const params = new URLSearchParams({
       client_id: this.credentials.clientId,
-      redirect_uri: this.redirectUri,
+      redirect_uri: REDIRECT_URI_OOB,
       response_type: "code",
       scope: SCOPES.join(" "),
       access_type: "offline",
-      prompt: "consent"
+      prompt: "consent",
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256"
     });
     return `${GOOGLE_AUTH_URL}?${params.toString()}`;
   }
-  async exchangeCodeForTokens(code) {
+  async exchangeCodeForTokens(code, codeVerifier) {
     const response = await (0, import_obsidian.requestUrl)({
       url: GOOGLE_TOKEN_URL,
       method: "POST",
@@ -187,10 +176,12 @@ var GoogleAuthService = class {
         client_secret: this.credentials.clientSecret,
         code,
         grant_type: "authorization_code",
-        redirect_uri: this.redirectUri
+        redirect_uri: REDIRECT_URI_OOB,
+        code_verifier: codeVerifier
       }).toString()
     });
     if (response.status !== 200) {
+      console.error("Token exchange failed:", response.status, response.text);
       throw new Error("Failed to exchange code for tokens");
     }
     const data = response.json;
@@ -841,6 +832,8 @@ var import_obsidian4 = require("obsidian");
 var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
+    this.authCodeInput = null;
+    this.authFlowStarted = false;
     this.plugin = plugin;
   }
   display() {
@@ -859,8 +852,7 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
     instructionsList.createEl("li", { text: "Create a new project or select an existing one" });
     instructionsList.createEl("li", { text: "Enable the Google Drive API for your project" });
     instructionsList.createEl("li", { text: 'Go to "Credentials" and create OAuth 2.0 credentials' });
-    instructionsList.createEl("li", { text: 'Set the application type to "Desktop app"' });
-    instructionsList.createEl("li", { text: "Add http://localhost:42813/callback as an authorized redirect URI" });
+    instructionsList.createEl("li", { text: 'Set the application type to "Desktop app" or "TV and Limited Input"' });
     instructionsList.createEl("li", { text: "Copy the Client ID and Client Secret below" });
     let clientIdInput;
     let clientSecretInput;
@@ -872,27 +864,53 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
       clientSecretInput = text;
       text.setPlaceholder("Enter your Client Secret").inputEl.type = "password";
     });
-    new import_obsidian4.Setting(containerEl).setName("Save Credentials & Connect").setDesc("Save your credentials and authenticate with Google Drive").addButton((button) => button.setButtonText("Connect to Google Drive").setCta().onClick(async () => {
-      const clientId = clientIdInput.getValue().trim();
-      const clientSecret = clientSecretInput.getValue().trim();
-      if (!clientId || !clientSecret) {
-        new import_obsidian4.Notice("Please enter both Client ID and Client Secret");
-        return;
-      }
-      this.plugin.authService.setCredentials({ clientId, clientSecret });
-      const success = await this.plugin.authService.startAuthFlow();
-      if (success) {
-        this.display();
-      }
-    }));
     containerEl.createEl("h3", { text: "Connection Status" });
     const isAuthenticated = this.plugin.authService.isAuthenticated();
-    const statusSetting = new import_obsidian4.Setting(containerEl).setName("Status").setDesc(isAuthenticated ? "Connected to Google Drive" : "Not connected");
     if (isAuthenticated) {
-      statusSetting.addButton((button) => button.setButtonText("Disconnect").setWarning().onClick(async () => {
+      new import_obsidian4.Setting(containerEl).setName("Status").setDesc("Connected to Google Drive").addButton((button) => button.setButtonText("Disconnect").setWarning().onClick(async () => {
         await this.plugin.authService.revokeAccess();
+        this.authFlowStarted = false;
         this.display();
       }));
+    } else {
+      new import_obsidian4.Setting(containerEl).setName("Status").setDesc("Not connected");
+      new import_obsidian4.Setting(containerEl).setName("Step 1: Sign in with Google").setDesc("Opens Google sign-in in your browser. After signing in, you'll receive an authorization code.").addButton((button) => button.setButtonText("Sign in with Google").setCta().onClick(async () => {
+        const clientId = clientIdInput.getValue().trim();
+        const clientSecret = clientSecretInput.getValue().trim();
+        if (!clientId || !clientSecret) {
+          new import_obsidian4.Notice("Please enter both Client ID and Client Secret first");
+          return;
+        }
+        this.plugin.authService.setCredentials({ clientId, clientSecret });
+        const authUrl = await this.plugin.authService.startAuthFlow();
+        if (authUrl) {
+          this.authFlowStarted = true;
+          this.display();
+        }
+      }));
+      if (this.authFlowStarted) {
+        const codeContainer = containerEl.createDiv({ cls: "gsync-auth-code-section" });
+        codeContainer.createEl("p", {
+          text: "After signing in with Google, copy the authorization code and paste it below:",
+          cls: "setting-item-description"
+        });
+        new import_obsidian4.Setting(codeContainer).setName("Step 2: Enter Authorization Code").setDesc("Paste the code from Google here").addText((text) => {
+          this.authCodeInput = text;
+          text.setPlaceholder("Paste authorization code here").inputEl.style.width = "300px";
+        }).addButton((button) => button.setButtonText("Submit Code").setCta().onClick(async () => {
+          var _a;
+          const code = (_a = this.authCodeInput) == null ? void 0 : _a.getValue().trim();
+          if (!code) {
+            new import_obsidian4.Notice("Please enter the authorization code");
+            return;
+          }
+          const success = await this.plugin.authService.completeAuthFlow(code);
+          if (success) {
+            this.authFlowStarted = false;
+            this.display();
+          }
+        }));
+      }
     }
     containerEl.createEl("h3", { text: "Sync Configuration" });
     new import_obsidian4.Setting(containerEl).setName("Sync Folder Name").setDesc("Name of the folder in Google Drive where your vault will be synced").addText((text) => text.setPlaceholder("ObsidianVault").setValue(this.plugin.settings.syncFolderName).onChange(async (value) => {

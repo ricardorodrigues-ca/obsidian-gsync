@@ -6,5 +6,5 @@
 	"description": "Sync your Obsidian vault to/from Google Drive. Keep your notes backed up and synchronized across devices.",
 	"author": "Ricardo Rodrigues",
 	"authorUrl": "https://github.com/ricardorodrigues-ca",
-	"isDesktopOnly": true
+	"isDesktopOnly": false
 }
