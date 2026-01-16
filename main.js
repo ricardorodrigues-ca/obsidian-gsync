@@ -113,20 +113,17 @@ var GoogleAuthService = class {
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
   /**
-   * Start the OAuth flow - opens browser for authentication
-   * Returns the auth URL for the user to visit
+   * Generate the OAuth URL for authentication
+   * Returns the auth URL for the user to visit manually
    */
-  async startAuthFlow() {
+  async generateAuthUrl() {
     if (!this.credentials) {
       new import_obsidian.Notice("Please configure your Google OAuth credentials first");
       return null;
     }
     this.codeVerifier = this.generateCodeVerifier();
     const codeChallenge = await this.generateCodeChallenge(this.codeVerifier);
-    const authUrl = this.buildAuthUrl(codeChallenge);
-    window.open(authUrl);
-    new import_obsidian.Notice("Opening Google sign-in page. Copy the authorization code after signing in.");
-    return authUrl;
+    return this.buildAuthUrl(codeChallenge);
   }
   /**
    * Complete the auth flow by exchanging the authorization code for tokens
@@ -834,6 +831,7 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
     super(app, plugin);
     this.authCodeInput = null;
     this.authFlowStarted = false;
+    this.authUrl = null;
     this.plugin = plugin;
   }
   display() {
@@ -870,11 +868,12 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
       new import_obsidian4.Setting(containerEl).setName("Status").setDesc("Connected to Google Drive").addButton((button) => button.setButtonText("Disconnect").setWarning().onClick(async () => {
         await this.plugin.authService.revokeAccess();
         this.authFlowStarted = false;
+        this.authUrl = null;
         this.display();
       }));
     } else {
       new import_obsidian4.Setting(containerEl).setName("Status").setDesc("Not connected");
-      new import_obsidian4.Setting(containerEl).setName("Step 1: Sign in with Google").setDesc("Opens Google sign-in in your browser. After signing in, you'll receive an authorization code.").addButton((button) => button.setButtonText("Sign in with Google").setCta().onClick(async () => {
+      new import_obsidian4.Setting(containerEl).setName("Step 1: Generate Sign-in Link").setDesc("Generate a link to sign in with Google").addButton((button) => button.setButtonText("Generate Link").setCta().onClick(async () => {
         const clientId = clientIdInput.getValue().trim();
         const clientSecret = clientSecretInput.getValue().trim();
         if (!clientId || !clientSecret) {
@@ -882,22 +881,46 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
           return;
         }
         this.plugin.authService.setCredentials({ clientId, clientSecret });
-        const authUrl = await this.plugin.authService.startAuthFlow();
-        if (authUrl) {
+        this.authUrl = await this.plugin.authService.generateAuthUrl();
+        if (this.authUrl) {
           this.authFlowStarted = true;
           this.display();
         }
       }));
-      if (this.authFlowStarted) {
+      if (this.authFlowStarted && this.authUrl) {
+        const urlContainer = containerEl.createDiv({ cls: "gsync-auth-url-section" });
+        urlContainer.createEl("h4", { text: "Step 2: Open this link in your browser" });
+        const instructions = urlContainer.createEl("p", { cls: "setting-item-description" });
+        if (import_obsidian4.Platform.isMobile) {
+          instructions.setText('Tap "Copy Link" below, then paste it in Safari/Chrome. After signing in, copy the authorization code shown by Google.');
+        } else {
+          instructions.setText("Click the link below or copy it to your browser. After signing in, copy the authorization code shown by Google.");
+        }
+        const linkContainer = urlContainer.createDiv({ cls: "gsync-auth-link-container" });
+        const link = linkContainer.createEl("a", {
+          text: "Click here to sign in with Google",
+          href: this.authUrl,
+          cls: "gsync-auth-link"
+        });
+        link.setAttr("target", "_blank");
+        new import_obsidian4.Setting(urlContainer).setName("Copy Sign-in Link").setDesc("Copy the link to paste in your browser").addButton((button) => button.setButtonText("Copy Link").onClick(async () => {
+          if (this.authUrl) {
+            await navigator.clipboard.writeText(this.authUrl);
+            new import_obsidian4.Notice("Link copied to clipboard! Paste it in your browser.");
+          }
+        }));
         const codeContainer = containerEl.createDiv({ cls: "gsync-auth-code-section" });
+        codeContainer.createEl("h4", { text: "Step 3: Enter the authorization code" });
         codeContainer.createEl("p", {
-          text: "After signing in with Google, copy the authorization code and paste it below:",
+          text: "After signing in with Google, you'll see an authorization code. Copy and paste it below:",
           cls: "setting-item-description"
         });
-        new import_obsidian4.Setting(codeContainer).setName("Step 2: Enter Authorization Code").setDesc("Paste the code from Google here").addText((text) => {
+        new import_obsidian4.Setting(codeContainer).setName("Authorization Code").setDesc("Paste the code from Google here").addText((text) => {
           this.authCodeInput = text;
-          text.setPlaceholder("Paste authorization code here").inputEl.style.width = "300px";
-        }).addButton((button) => button.setButtonText("Submit Code").setCta().onClick(async () => {
+          text.setPlaceholder("Paste authorization code here");
+          text.inputEl.style.width = "100%";
+        });
+        new import_obsidian4.Setting(codeContainer).addButton((button) => button.setButtonText("Submit Code").setCta().onClick(async () => {
           var _a;
           const code = (_a = this.authCodeInput) == null ? void 0 : _a.getValue().trim();
           if (!code) {
@@ -907,8 +930,13 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
           const success = await this.plugin.authService.completeAuthFlow(code);
           if (success) {
             this.authFlowStarted = false;
+            this.authUrl = null;
             this.display();
           }
+        })).addButton((button) => button.setButtonText("Cancel").onClick(() => {
+          this.authFlowStarted = false;
+          this.authUrl = null;
+          this.display();
         }));
       }
     }

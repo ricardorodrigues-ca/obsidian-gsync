@@ -96,10 +96,10 @@ export class GoogleAuthService {
 	}
 
 	/**
-	 * Start the OAuth flow - opens browser for authentication
-	 * Returns the auth URL for the user to visit
+	 * Generate the OAuth URL for authentication
+	 * Returns the auth URL for the user to visit manually
 	 */
-	async startAuthFlow(): Promise<string | null> {
+	async generateAuthUrl(): Promise<string | null> {
 		if (!this.credentials) {
 			new Notice('Please configure your Google OAuth credentials first');
 			return null;
@@ -109,14 +109,7 @@ export class GoogleAuthService {
 		this.codeVerifier = this.generateCodeVerifier();
 		const codeChallenge = await this.generateCodeChallenge(this.codeVerifier);
 
-		const authUrl = this.buildAuthUrl(codeChallenge);
-
-		// Open URL in browser
-		window.open(authUrl);
-
-		new Notice('Opening Google sign-in page. Copy the authorization code after signing in.');
-
-		return authUrl;
+		return this.buildAuthUrl(codeChallenge);
 	}
 
 	/**

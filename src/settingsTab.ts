@@ -1,10 +1,11 @@
-import { App, PluginSettingTab, Setting, TextComponent, Notice } from 'obsidian';
+import { App, PluginSettingTab, Setting, TextComponent, Notice, Platform } from 'obsidian';
 import type GSyncPlugin from './main';
 
 export class GSyncSettingTab extends PluginSettingTab {
 	plugin: GSyncPlugin;
 	private authCodeInput: TextComponent | null = null;
 	private authFlowStarted: boolean = false;
+	private authUrl: string | null = null;
 
 	constructor(app: App, plugin: GSyncPlugin) {
 		super(app, plugin);
@@ -70,6 +71,7 @@ export class GSyncSettingTab extends PluginSettingTab {
 					.onClick(async () => {
 						await this.plugin.authService.revokeAccess();
 						this.authFlowStarted = false;
+						this.authUrl = null;
 						this.display();
 					}));
 		} else {
@@ -77,12 +79,12 @@ export class GSyncSettingTab extends PluginSettingTab {
 				.setName('Status')
 				.setDesc('Not connected');
 
-			// Step 1: Start auth flow
+			// Step 1: Generate auth URL
 			new Setting(containerEl)
-				.setName('Step 1: Sign in with Google')
-				.setDesc('Opens Google sign-in in your browser. After signing in, you\'ll receive an authorization code.')
+				.setName('Step 1: Generate Sign-in Link')
+				.setDesc('Generate a link to sign in with Google')
 				.addButton(button => button
-					.setButtonText('Sign in with Google')
+					.setButtonText('Generate Link')
 					.setCta()
 					.onClick(async () => {
 						const clientId = clientIdInput.getValue().trim();
@@ -94,30 +96,68 @@ export class GSyncSettingTab extends PluginSettingTab {
 						}
 
 						this.plugin.authService.setCredentials({ clientId, clientSecret });
-						const authUrl = await this.plugin.authService.startAuthFlow();
+						this.authUrl = await this.plugin.authService.generateAuthUrl();
 
-						if (authUrl) {
+						if (this.authUrl) {
 							this.authFlowStarted = true;
-							this.display(); // Refresh to show the code input
+							this.display(); // Refresh to show the URL
 						}
 					}));
 
-			// Step 2: Enter authorization code (only show after auth flow started)
-			if (this.authFlowStarted) {
+			// Show auth URL and code input after auth flow started
+			if (this.authFlowStarted && this.authUrl) {
+				// Step 2: Display the auth URL
+				const urlContainer = containerEl.createDiv({ cls: 'gsync-auth-url-section' });
+				urlContainer.createEl('h4', { text: 'Step 2: Open this link in your browser' });
+
+				// Instructions
+				const instructions = urlContainer.createEl('p', { cls: 'setting-item-description' });
+				if (Platform.isMobile) {
+					instructions.setText('Tap "Copy Link" below, then paste it in Safari/Chrome. After signing in, copy the authorization code shown by Google.');
+				} else {
+					instructions.setText('Click the link below or copy it to your browser. After signing in, copy the authorization code shown by Google.');
+				}
+
+				// Clickable link (works better on desktop)
+				const linkContainer = urlContainer.createDiv({ cls: 'gsync-auth-link-container' });
+				const link = linkContainer.createEl('a', {
+					text: 'Click here to sign in with Google',
+					href: this.authUrl,
+					cls: 'gsync-auth-link',
+				});
+				link.setAttr('target', '_blank');
+
+				// Copy URL button (better for mobile)
+				new Setting(urlContainer)
+					.setName('Copy Sign-in Link')
+					.setDesc('Copy the link to paste in your browser')
+					.addButton(button => button
+						.setButtonText('Copy Link')
+						.onClick(async () => {
+							if (this.authUrl) {
+								await navigator.clipboard.writeText(this.authUrl);
+								new Notice('Link copied to clipboard! Paste it in your browser.');
+							}
+						}));
+
+				// Step 3: Enter authorization code
 				const codeContainer = containerEl.createDiv({ cls: 'gsync-auth-code-section' });
+				codeContainer.createEl('h4', { text: 'Step 3: Enter the authorization code' });
 				codeContainer.createEl('p', {
-					text: 'After signing in with Google, copy the authorization code and paste it below:',
+					text: 'After signing in with Google, you\'ll see an authorization code. Copy and paste it below:',
 					cls: 'setting-item-description',
 				});
 
 				new Setting(codeContainer)
-					.setName('Step 2: Enter Authorization Code')
+					.setName('Authorization Code')
 					.setDesc('Paste the code from Google here')
 					.addText(text => {
 						this.authCodeInput = text;
-						text.setPlaceholder('Paste authorization code here')
-							.inputEl.style.width = '300px';
-					})
+						text.setPlaceholder('Paste authorization code here');
+						text.inputEl.style.width = '100%';
+					});
+
+				new Setting(codeContainer)
 					.addButton(button => button
 						.setButtonText('Submit Code')
 						.setCta()
@@ -131,8 +171,16 @@ export class GSyncSettingTab extends PluginSettingTab {
 							const success = await this.plugin.authService.completeAuthFlow(code);
 							if (success) {
 								this.authFlowStarted = false;
+								this.authUrl = null;
 								this.display(); // Refresh the settings view
 							}
+						}))
+					.addButton(button => button
+						.setButtonText('Cancel')
+						.onClick(() => {
+							this.authFlowStarted = false;
+							this.authUrl = null;
+							this.display();
 						}));
 			}
 		}
