@@ -237,3 +237,58 @@
 .gsync-settings .setting-item-control button.mod-warning {
 	background-color: var(--background-modifier-error);
 }
+
+/* Auth Flow Styles */
+.gsync-auth-url-section {
+	margin: 16px 0;
+	padding: 16px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+	border-left: 4px solid var(--interactive-accent);
+}
+
+.gsync-auth-url-section h4 {
+	margin: 0 0 12px 0;
+	color: var(--text-normal);
+}
+
+.gsync-auth-link-container {
+	margin: 12px 0;
+	padding: 12px;
+	background-color: var(--background-primary);
+	border-radius: 4px;
+	text-align: center;
+}
+
+.gsync-auth-link {
+	color: var(--text-accent);
+	text-decoration: underline;
+	font-weight: 500;
+	word-break: break-all;
+}
+
+.gsync-auth-link:hover {
+	color: var(--text-accent-hover);
+}
+
+.gsync-auth-code-section {
+	margin: 16px 0;
+	padding: 16px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+	border-left: 4px solid var(--text-success);
+}
+
+.gsync-auth-code-section h4 {
+	margin: 0 0 12px 0;
+	color: var(--text-normal);
+}
+
+/* Mobile-specific adjustments */
+.is-mobile .gsync-auth-link-container {
+	padding: 16px;
+}
+
+.is-mobile .gsync-auth-link {
+	font-size: 1.1em;
+}
