@@ -1,5 +1,9 @@
 # Obsidian Google Drive Sync
 
+<p align="center">
+  <img src="assets/banner.png" alt="Obsidian Google Drive Sync" width="400">
+</p>
+
 Sync your Obsidian vault to/from Google Drive. Keep your notes backed up and synchronized across devices.
 
 ## Features
