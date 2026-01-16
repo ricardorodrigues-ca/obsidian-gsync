@@ -1,4 +1,4 @@
-import { Notice, requestUrl } from 'obsidian';
+import { Notice, requestUrl, Platform } from 'obsidian';
 import type GSyncPlugin from './main';
 
 // Google OAuth 2.0 configuration
@@ -11,6 +11,10 @@ const SCOPES = [
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
+// Use urn:ietf:wg:oauth:2.0:oob for manual code entry (works on all platforms)
+// This is Google's out-of-band flow for devices that can't receive redirects
+const REDIRECT_URI_OOB = 'urn:ietf:wg:oauth:2.0:oob';
+
 export interface OAuthCredentials {
 	clientId: string;
 	clientSecret: string;
@@ -19,8 +23,8 @@ export interface OAuthCredentials {
 export class GoogleAuthService {
 	private plugin: GSyncPlugin;
 	private credentials: OAuthCredentials | null = null;
-	private localServer: any = null;
-	private redirectUri = 'http://localhost:42813/callback';
+	private pendingAuthResolve: ((value: boolean) => void) | null = null;
+	private codeVerifier: string | null = null;
 
 	constructor(plugin: GSyncPlugin) {
 		this.plugin = plugin;
@@ -58,113 +62,105 @@ export class GoogleAuthService {
 		return this.plugin.settings.accessToken;
 	}
 
-	async startAuthFlow(): Promise<boolean> {
+	/**
+	 * Generate a random code verifier for PKCE
+	 */
+	private generateCodeVerifier(): string {
+		const array = new Uint8Array(32);
+		crypto.getRandomValues(array);
+		return this.base64UrlEncode(array);
+	}
+
+	/**
+	 * Generate code challenge from verifier using SHA-256
+	 */
+	private async generateCodeChallenge(verifier: string): Promise<string> {
+		const encoder = new TextEncoder();
+		const data = encoder.encode(verifier);
+		const digest = await crypto.subtle.digest('SHA-256', data);
+		return this.base64UrlEncode(new Uint8Array(digest));
+	}
+
+	/**
+	 * Base64 URL encode (RFC 4648)
+	 */
+	private base64UrlEncode(buffer: Uint8Array): string {
+		let binary = '';
+		for (let i = 0; i < buffer.byteLength; i++) {
+			binary += String.fromCharCode(buffer[i]!);
+		}
+		return btoa(binary)
+			.replace(/\+/g, '-')
+			.replace(/\//g, '_')
+			.replace(/=+$/, '');
+	}
+
+	/**
+	 * Start the OAuth flow - opens browser for authentication
+	 * Returns the auth URL for the user to visit
+	 */
+	async startAuthFlow(): Promise<string | null> {
+		if (!this.credentials) {
+			new Notice('Please configure your Google OAuth credentials first');
+			return null;
+		}
+
+		// Generate PKCE code verifier and challenge
+		this.codeVerifier = this.generateCodeVerifier();
+		const codeChallenge = await this.generateCodeChallenge(this.codeVerifier);
+
+		const authUrl = this.buildAuthUrl(codeChallenge);
+
+		// Open URL in browser
+		window.open(authUrl);
+
+		new Notice('Opening Google sign-in page. Copy the authorization code after signing in.');
+
+		return authUrl;
+	}
+
+	/**
+	 * Complete the auth flow by exchanging the authorization code for tokens
+	 */
+	async completeAuthFlow(code: string): Promise<boolean> {
 		if (!this.credentials) {
 			new Notice('Please configure your Google OAuth credentials first');
 			return false;
 		}
 
-		return new Promise((resolve) => {
-			// Create a simple HTTP server to receive the OAuth callback
-			const http = require('http');
-			const url = require('url');
+		if (!this.codeVerifier) {
+			new Notice('Please start the authentication flow first');
+			return false;
+		}
 
-			if (this.localServer) {
-				this.localServer.close();
-			}
-
-			this.localServer = http.createServer(async (req: any, res: any) => {
-				const parsedUrl = url.parse(req.url, true);
-
-				if (parsedUrl.pathname === '/callback') {
-					const code = parsedUrl.query.code;
-					const error = parsedUrl.query.error;
-
-					if (error) {
-						res.writeHead(200, { 'Content-Type': 'text/html' });
-						res.end(`
-							<html>
-								<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-									<h2>Authentication Failed</h2>
-									<p>Error: ${error}</p>
-									<p>You can close this window.</p>
-								</body>
-							</html>
-						`);
-						this.localServer.close();
-						resolve(false);
-						return;
-					}
-
-					if (code) {
-						try {
-							await this.exchangeCodeForTokens(code as string);
-							res.writeHead(200, { 'Content-Type': 'text/html' });
-							res.end(`
-								<html>
-									<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-										<h2>Authentication Successful!</h2>
-										<p>You can close this window and return to Obsidian.</p>
-									</body>
-								</html>
-							`);
-							this.localServer.close();
-							resolve(true);
-						} catch (err) {
-							res.writeHead(200, { 'Content-Type': 'text/html' });
-							res.end(`
-								<html>
-									<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-										<h2>Authentication Failed</h2>
-										<p>Error exchanging code for tokens.</p>
-										<p>You can close this window.</p>
-									</body>
-								</html>
-							`);
-							this.localServer.close();
-							resolve(false);
-						}
-					}
-				}
-			});
-
-			this.localServer.listen(42813, () => {
-				// Open the Google OAuth URL in the default browser
-				const authUrl = this.buildAuthUrl();
-				require('electron').shell.openExternal(authUrl);
-				new Notice('Opening Google sign-in page in your browser...');
-			});
-
-			this.localServer.on('error', (err: any) => {
-				console.error('Auth server error:', err);
-				new Notice('Failed to start authentication server. Port 42813 may be in use.');
-				resolve(false);
-			});
-
-			// Timeout after 5 minutes
-			setTimeout(() => {
-				if (this.localServer) {
-					this.localServer.close();
-					resolve(false);
-				}
-			}, 300000);
-		});
+		try {
+			await this.exchangeCodeForTokens(code, this.codeVerifier);
+			this.codeVerifier = null;
+			return true;
+		} catch (error) {
+			console.error('Auth flow error:', error);
+			new Notice('Authentication failed. Please try again.');
+			this.codeVerifier = null;
+			return false;
+		}
 	}
 
-	private buildAuthUrl(): string {
+	private buildAuthUrl(codeChallenge: string): string {
 		const params = new URLSearchParams({
 			client_id: this.credentials!.clientId,
-			redirect_uri: this.redirectUri,
+			redirect_uri: REDIRECT_URI_OOB,
 			response_type: 'code',
 			scope: SCOPES.join(' '),
 			access_type: 'offline',
 			prompt: 'consent',
+			code_challenge: codeChallenge,
+			code_challenge_method: 'S256',
 		});
 
 		return `${GOOGLE_AUTH_URL}?${params.toString()}`;
 	}
 
-	private async exchangeCodeForTokens(code: string): Promise<void> {
+	private async exchangeCodeForTokens(code: string, codeVerifier: string): Promise<void> {
 		const response = await requestUrl({
 			url: GOOGLE_TOKEN_URL,
 			method: 'POST',
@@ -176,11 +172,13 @@ export class GoogleAuthService {
 				client_secret: this.credentials!.clientSecret,
 				code: code,
 				grant_type: 'authorization_code',
-				redirect_uri: this.redirectUri,
+				redirect_uri: REDIRECT_URI_OOB,
+				code_verifier: codeVerifier,
 			}).toString(),
 		});
 
 		if (response.status !== 200) {
+			console.error('Token exchange failed:', response.status, response.text);
 			throw new Error('Failed to exchange code for tokens');
 		}
 
