@@ -1,5 +1,9 @@
 export interface GSyncSettings {
-	// Authentication
+	// OAuth Credentials
+	clientId: string;
+	clientSecret: string;
+
+	// Authentication Tokens
 	accessToken: string;
 	refreshToken: string;
 	tokenExpiry: number;
@@ -26,6 +30,9 @@ export interface GSyncSettings {
 }
 
 export const DEFAULT_SETTINGS: GSyncSettings = {
+	clientId: '',
+	clientSecret: '',
+
 	accessToken: '',
 	refreshToken: '',
 	tokenExpiry: 0,

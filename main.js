@@ -31,6 +31,8 @@ var import_obsidian5 = require("obsidian");
 
 // src/settings.ts
 var DEFAULT_SETTINGS = {
+  clientId: "",
+  clientSecret: "",
   accessToken: "",
   refreshToken: "",
   tokenExpiry: 0,
@@ -856,11 +858,13 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
     let clientSecretInput;
     new import_obsidian4.Setting(containerEl).setName("Client ID").setDesc("Your Google OAuth Client ID").addText((text) => {
       clientIdInput = text;
-      text.setPlaceholder("Enter your Client ID").inputEl.type = "password";
+      text.setPlaceholder("Enter your Client ID").setValue(this.plugin.settings.clientId);
+      text.inputEl.type = "password";
     });
     new import_obsidian4.Setting(containerEl).setName("Client Secret").setDesc("Your Google OAuth Client Secret").addText((text) => {
       clientSecretInput = text;
-      text.setPlaceholder("Enter your Client Secret").inputEl.type = "password";
+      text.setPlaceholder("Enter your Client Secret").setValue(this.plugin.settings.clientSecret);
+      text.inputEl.type = "password";
     });
     containerEl.createEl("h3", { text: "Connection Status" });
     const isAuthenticated = this.plugin.authService.isAuthenticated();
@@ -880,6 +884,9 @@ var GSyncSettingTab = class extends import_obsidian4.PluginSettingTab {
           new import_obsidian4.Notice("Please enter both Client ID and Client Secret first");
           return;
         }
+        this.plugin.settings.clientId = clientId;
+        this.plugin.settings.clientSecret = clientSecret;
+        await this.plugin.saveSettings();
         this.plugin.authService.setCredentials({ clientId, clientSecret });
         this.authUrl = await this.plugin.authService.generateAuthUrl();
         if (this.authUrl) {
@@ -1025,6 +1032,12 @@ var GSyncPlugin = class extends import_obsidian5.Plugin {
     this.authService = new GoogleAuthService(this);
     this.driveService = new GoogleDriveService(this);
     this.syncService = new SyncService(this);
+    if (this.settings.clientId && this.settings.clientSecret) {
+      this.authService.setCredentials({
+        clientId: this.settings.clientId,
+        clientSecret: this.settings.clientSecret
+      });
+    }
     this.syncService.onSyncStatusChange((status) => {
       this.updateStatusBar(status);
       this.updateRibbonIcon(status);
