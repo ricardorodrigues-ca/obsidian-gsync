@@ -23,6 +23,14 @@ export default class GSyncPlugin extends Plugin {
 		this.driveService = new GoogleDriveService(this);
 		this.syncService = new SyncService(this);
 
+		// Load saved OAuth credentials
+		if (this.settings.clientId && this.settings.clientSecret) {
+			this.authService.setCredentials({
+				clientId: this.settings.clientId,
+				clientSecret: this.settings.clientSecret,
+			});
+		}
+
 		// Set up sync status callback
 		this.syncService.onSyncStatusChange((status) => {
 			this.updateStatusBar(status);

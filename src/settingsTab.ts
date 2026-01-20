@@ -44,7 +44,8 @@ export class GSyncSettingTab extends PluginSettingTab {
 			.addText(text => {
 				clientIdInput = text;
 				text.setPlaceholder('Enter your Client ID')
-					.inputEl.type = 'password';
+					.setValue(this.plugin.settings.clientId);
+				text.inputEl.type = 'password';
 			});
 
 		new Setting(containerEl)
@@ -53,7 +54,8 @@ export class GSyncSettingTab extends PluginSettingTab {
 			.addText(text => {
 				clientSecretInput = text;
 				text.setPlaceholder('Enter your Client Secret')
-					.inputEl.type = 'password';
+					.setValue(this.plugin.settings.clientSecret);
+				text.inputEl.type = 'password';
 			});
 
 		// Connection Status
@@ -94,6 +96,11 @@ export class GSyncSettingTab extends PluginSettingTab {
 							new Notice('Please enter both Client ID and Client Secret first');
 							return;
 						}
+
+						// Save credentials to settings
+						this.plugin.settings.clientId = clientId;
+						this.plugin.settings.clientSecret = clientSecret;
+						await this.plugin.saveSettings();
 
 						this.plugin.authService.setCredentials({ clientId, clientSecret });
 						this.authUrl = await this.plugin.authService.generateAuthUrl();
