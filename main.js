@@ -73,7 +73,7 @@ var GoogleAuthService = class {
     return this.credentials !== null && this.credentials.clientId !== "" && this.credentials.clientSecret !== "";
   }
   isAuthenticated() {
-    return this.plugin.settings.accessToken !== "" && this.plugin.settings.refreshToken !== "" && Date.now() < this.plugin.settings.tokenExpiry;
+    return this.hasCredentials() && this.plugin.settings.refreshToken !== "";
   }
   async getValidAccessToken() {
     if (!this.plugin.settings.accessToken) {
