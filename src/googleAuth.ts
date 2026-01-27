@@ -41,9 +41,10 @@ export class GoogleAuthService {
 	}
 
 	isAuthenticated(): boolean {
-		return this.plugin.settings.accessToken !== '' &&
-			this.plugin.settings.refreshToken !== '' &&
-			Date.now() < this.plugin.settings.tokenExpiry;
+		// Check if we have credentials and a refresh token
+		// The access token will be refreshed automatically when needed via getValidAccessToken()
+		return this.hasCredentials() &&
+			this.plugin.settings.refreshToken !== '';
 	}
 
 	async getValidAccessToken(): Promise<string | null> {
